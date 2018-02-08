@@ -18,6 +18,9 @@ namespace LiquidProjections.Testing
         private CancellationTokenSource cancellationTokenSource;
         private readonly object syncRoot = new object();
         private Task task;
+
+        // Returns the last exception that caused the subscription to abort or <c>null</c>.
+        private Exception exception;
         private TaskCompletionSource<long> progressCompletionSource = new TaskCompletionSource<long>();
 
         private readonly TaskCompletionSource<bool> waitForCheckingWhetherItIsAheadCompletionSource =
@@ -57,14 +60,19 @@ namespace LiquidProjections.Testing
                 };
 
                 task = Task.Factory.StartNew(
-                        async () =>
+                    async () =>
+                    {
+                        try
                         {
-                            try
-                            {
-                                await RunAsync(info).ConfigureAwait(false);
-                            }
-                            catch (Exception)
-                            {
+                            await RunAsync(info).ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            Dispose();
+                        }
+                        catch (Exception exc)
+                        {
+                            exception = exc;
                                 Dispose();
                             }
                         },
@@ -208,7 +216,19 @@ namespace LiquidProjections.Testing
                     }
                 }
 
-                await progressTask.ConfigureAwait(false);
+                try
+                {
+                    await progressTask.ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+            }
+
+            if (exception != null)
+            {
+                throw new AggregateException(exception);
             }
         }
 
